@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from prediction_helper import load_prediction_model, load_scaler, make_prediction
@@ -11,20 +10,27 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Title and Description ---
-st.title("g Weather Forecasting App (LSTM)")
+st.title("Weather Temperature Predictor (LSTM)")
 st.markdown("""
-This application uses a Deep Learning (LSTM) model to forecast future temperatures.
-**Upload a CSV file containing the past weather data to generate a forecast.**
+Enter the required weather attributes, and the model will predict the **next temperature value**.
 """)
 
-# --- Sidebar: Configuration ---
+# --- Features to Ask the User ---
+FEATURES = [
+    "relative_humidity_2m",
+    "apparent_temperature",
+    "precipitation",
+    "wind_speed",
+    "cloud_cover",
+    "sunshine_duration"
+]
+
+# --- Sidebar: Model Config ---
 st.sidebar.header("Configuration")
 window_size = st.sidebar.number_input(
-    "Lookback Window Size (Time Steps)", 
-    min_value=1, 
-    value=24, 
-    help="The number of past steps the model needs to predict the next one."
+    "Lookback Window Size (Time Steps)",
+    min_value=1,
+    value=24
 )
 
 # --- Load Model & Scalers ---
@@ -32,91 +38,51 @@ try:
     model = load_prediction_model('model.keras')
     scaler_X = load_scaler('scaler_X.pkl')
     scaler_y = load_scaler('scaler_y.pkl')
-    st.sidebar.success("Model and Scalers loaded!")
+    st.sidebar.success("Model and scalers loaded successfully!")
 except Exception as e:
-    st.error(f"Error loading model/scaler: {e}")
-    st.info("Please ensure 'model.keras', 'scaler_X.pkl', and 'scaler_y.pkl' are in the repository.")
+    st.error(f"❌ Failed to load model/scaler: {e}")
     st.stop()
 
-# --- Main Interface ---
-uploaded_file = st.file_uploader("Upload your input CSV", type=["csv"])
+# --- User Inputs Form ---
+st.subheader("Enter Weather Attributes")
 
-if uploaded_file is not None:
-    # Read Data
+inputs = {}
+
+cols = st.columns(3)
+for i, feature in enumerate(FEATURES):
+    with cols[i % 3]:
+        inputs[feature] = st.number_input(
+            f"{feature.replace('_', ' ').title()}",
+            value=0.0,
+            format="%.4f"
+        )
+
+st.info("These values represent the **most recent** measurements. The model needs them to forecast the next one.")
+
+# --- Prediction ---
+if st.button("Predict Temperature"):
+
     try:
-        df = pd.read_csv(uploaded_file)
-        
-        # --- ROBUSTNESS FIX ---
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        
-        if not numeric_cols:
-            st.error("❌ No numeric columns found!")
-            st.stop()
-            
-        st.write("### Data Preview")
-        st.dataframe(df.head())
+        # Convert dict → numeric vector
+        input_vector = np.array(list(inputs.values()), dtype=float)
 
-        # --- NEW: Feature Selection ---
-        st.subheader("Model Inputs")
-        st.info("Your model was trained on multiple features. Please select them all in the correct order.")
-        
-        # 1. Feature Columns (Input for the Model)
-        feature_cols = st.multiselect(
-            "Select Input Features (Must match training data)", 
-            numeric_cols,
-            default=numeric_cols  # Select all by default to be helpful
-        )
-        
-        # 2. Target Column (For Visualization Only)
-        target_col = st.selectbox(
-            "Select Target Column (For Plotting)", 
-            numeric_cols,
-            index=0
+        # Repeat the last entry to form window_size sequence
+        # Example: LSTM expects (window_size, num_features)
+        X_window = np.tile(input_vector, (window_size, 1))
+
+        prediction = make_prediction(
+            model, scaler_X, scaler_y, X_window, window_size
         )
 
-        # Check data length
-        if len(df) < window_size:
-            st.error(f"Not enough data! The model needs at least {window_size} rows.")
-        else:
-            if st.button("Generate Forecast"):
-                if not feature_cols:
-                    st.error("Please select at least one feature column.")
-                else:
-                    with st.spinner("Calculating forecast..."):
-                        try:
-                            # Prepare data: Get last 'window_size' rows of the SELECTED FEATURES
-                            input_data = df[feature_cols].values[-window_size:]
-                            
-                            # Make Prediction
-                            prediction = make_prediction(model, scaler_X, scaler_y, input_data, window_size)
-                            
-                            # Display Result
-                            st.success("Prediction Complete!")
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric(label="Predicted Next Value", value=f"{prediction:.4f}")
-                            
-                            # Visualization
-                            with col2:
-                                fig, ax = plt.subplots(figsize=(10, 4))
-                                # Plot historical context of the TARGET column
-                                history_plot = df[target_col].values[-50:]
-                                x_hist = np.arange(len(history_plot))
-                                x_pred = len(history_plot)
-                                
-                                ax.plot(x_hist, history_plot, label='History', marker='o')
-                                ax.scatter(x_pred, prediction, color='red', label='Forecast', zorder=5, s=100)
-                                ax.set_title("Forecast Visualization")
-                                ax.legend()
-                                st.pyplot(fig)
+        st.success("Prediction complete!")
 
-                        except Exception as e:
-                            st.error(f"An error occurred: {e}")
-                            st.warning(f"Your model expects specific input dimensions. You selected {len(feature_cols)} features. If you trained on 9 features, you must select 9 here.")
-    
+        st.metric("Predicted Temperature", f"{prediction:.4f}")
+
+        # Optional small plot
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.scatter([0], [prediction], color="red", s=150)
+        ax.set_title("Predicted Temperature")
+        st.pyplot(fig)
+
     except Exception as e:
-        st.error(f"Error reading the CSV file: {e}")
-
-else:
-    st.info("Awaiting CSV file upload.")
+        st.error(f"Prediction error: {e}")
