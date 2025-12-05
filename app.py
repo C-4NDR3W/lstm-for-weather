@@ -20,7 +20,6 @@ FEATURES = [
     "relative_humidity_2m",
     "apparent_temperature",
     "precipitation",
-    "wind_speed",
     "cloud_cover",
     "sunshine_duration"
 ]
@@ -54,7 +53,7 @@ for i, feature in enumerate(FEATURES):
         inputs[feature] = st.number_input(
             f"{feature.replace('_', ' ').title()}",
             value=0.0,
-            format="%.4f"
+            format="%.2f"
         )
 
 st.info("These values represent the **most recent** measurements. The model needs them to forecast the next one.")
