@@ -56,6 +56,8 @@ for i, feature in enumerate(FEATURES):
 
 st.info("These values represent the **most recent** measurements.")
 
+st.sidebar.write("Model input shape:", model.input_shape)
+
 # --- Prediction ---
 if st.button("Predict Temperature"):
 
